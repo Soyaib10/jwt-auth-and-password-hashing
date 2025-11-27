@@ -200,28 +200,4 @@ bcrypt:
 3. Compares result with stored hash
 4. Returns `nil` (success) or error (wrong password)
 
----
-
-## Project Structure
-
-```
-.
-├── cmd
-│   └── api
-│       └── main.go              # Application entry point
-├── internal
-│   ├── config
-│   │   └── config.go            # Environment configuration
-│   ├── database
-│   │   └── postgres.go          # Database connection pool
-│   ├── handlers
-│   │   └── auth.go              # Registration & login handlers
-│   ├── middleware
-│   │   └── auth.go              # JWT authentication middleware
-│   └── models
-│       └── user.go              # User model & password functions
-├── .env                          # Environment variables
-├── go.mod
-└── README.md
-```
 
