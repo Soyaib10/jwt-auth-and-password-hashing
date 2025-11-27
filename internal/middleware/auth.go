@@ -52,3 +52,17 @@ func JWTAuth(jwtSecret string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+func GetClaims(r *http.Request) jwt.MapClaims {
+	return r.Context().Value(UserContextKey).(jwt.MapClaims)
+}
+
+func GetUserID(r *http.Request) int {
+	claims := GetClaims(r)
+	return int(claims["user_id"].(float64))
+}
+
+func GetUserEmail(r *http.Request) string {
+	claims := GetClaims(r)
+	return claims["email"].(string)
+}

@@ -458,4 +458,52 @@ func ProtectedHandler(w http.ResponseWriter, r *http.Request) {
 7. Handler uses `user_id` and `email` to process request
 
 
+# How routes are ensured that someone is a valid user
+just put all protected routes inside the r.Group() block with 
+the JWT middleware. Here's how:
 
+1. Public routes (outside the group) - No authentication required
+   - /api/register
+   - /api/login
+
+2. Protected routes (inside r.Group()) - JWT middleware runs automatically
+   - /api/protected
+   - /api/profile
+   - /api/posts
+   - etc.
+
+What happens when someone tries to access a protected route:
+
+Request → /api/profile
+          ↓
+Middleware checks JWT token
+          ↓
+Valid token? → Continue to handler
+Invalid/missing token? → Return 401 Unauthorized
+
+
+The r.Use(middleware.JWTAuth(jwtSecret)) applies to every route inside that
+group. You don't need to add it to each route individually.
+
+Example with multiple groups:
+
+go
+
+```
+// Public routes
+r.Post("/api/register", authHandler.Register)
+r.Post("/api/login", authHandler.Login)
+
+// Protected user routes
+r.Group(func(r chi.Router) {
+	r.Use(middleware.JWTAuth(jwtSecret))
+	r.Get("/api/profile", profileHandler)
+})
+
+// Protected admin routes (could add admin check middleware too)
+r.Group(func(r chi.Router) {
+	r.Use(middleware.JWTAuth(jwtSecret))
+	r.Use(middleware.AdminOnly())  // Additional middleware
+	r.Get("/api/admin/users", listUsersHandler)
+})
+```
