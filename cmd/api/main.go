@@ -30,7 +30,17 @@ func main() {
 		DB: db,
 	}
 
-	r := setupRoutes(authHandler, profileHandler, cfg.JWTSecret)
+	refreshHandler := &handlers.RefreshHandler{
+		DB:        db,
+		JWTSecret: cfg.JWTSecret,
+	}
+
+	logoutHandler := &handlers.LogoutHandler{
+		DB:        db,
+		JWTSecret: cfg.JWTSecret,
+	}
+
+	r := setupRoutes(authHandler, profileHandler, refreshHandler, logoutHandler, cfg.JWTSecret)
 
 	log.Printf("Server starting on port %s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {

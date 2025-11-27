@@ -47,6 +47,11 @@ func JWTAuth(jwtSecret string) func(http.Handler) http.Handler {
 				return
 			}
 
+			if claims["type"] != "access" {
+				http.Error(w, "Invalid token type", http.StatusUnauthorized)
+				return
+			}
+
 			ctx := context.WithValue(r.Context(), UserContextKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

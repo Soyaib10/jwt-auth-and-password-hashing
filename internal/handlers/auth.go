@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/Soyaib10/jwt-auth-and-password-hashing/internal/helpers"
 	"github.com/Soyaib10/jwt-auth-and-password-hashing/internal/models"
@@ -25,8 +26,9 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token string       `json:"token"`
-	User  *models.User `json:"user"`
+	AccessToken  string       `json:"access_token"`
+	RefreshToken string       `json:"refresh_token"`
+	User         *models.User `json:"user"`
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -65,16 +67,31 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := helpers.GenerateJWT(user.ID, user.Email, h.JWTSecret)
+	accessToken, err := helpers.GenerateAccessToken(user.ID, user.Email, h.JWTSecret)
 	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		http.Error(w, "Failed to generate access token", http.StatusInternalServerError)
+		return
+	}
+
+	refreshToken, jti, err := helpers.GenerateRefreshToken(user.ID, h.JWTSecret)
+	if err != nil {
+		http.Error(w, "Failed to generate refresh token", http.StatusInternalServerError)
+		return
+	}
+
+	tokenHash := helpers.HashToken(refreshToken)
+	expiresAt := time.Now().Add(7 * 24 * time.Hour)
+
+	if err := models.StoreRefreshToken(r.Context(), h.DB, user.ID, jti, tokenHash, expiresAt); err != nil {
+		http.Error(w, "Failed to store refresh token", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(LoginResponse{
-		Token: token,
-		User:  user,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		User:         user,
 	})
 }
 
