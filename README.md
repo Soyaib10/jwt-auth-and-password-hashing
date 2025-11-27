@@ -1,3 +1,299 @@
+# FULL WORKFLOW
+## **WORKFLOW 1: Registration**
+```
+Client                          Server                          Database
+  │                               │                               │
+  │  POST /api/register           │                               │
+  │  {email, password}            │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  Hash password (bcrypt)       │
+  │                               │  "password123" → "$2a$10..."  │
+  │                               │                               │
+  │                               │  INSERT INTO users            │
+  │                               ├──────────────────────────────>│
+  │                               │                               │
+  │                               │<──────────────────────────────┤
+  │                               │  user created (id: 1)         │
+  │                               │                               │
+  │  201 Created                  │                               │
+  │  {id: 1, email, created_at}   │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+## **WORKFLOW 2: Login**
+```
+Client                          Server                          Database
+  │                               │                               │
+  │  POST /api/login              │                               │
+  │  {email, password}            │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  SELECT user WHERE email=?    │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  user data                    │
+  │                               │                               │
+  │                               │  Verify password (bcrypt)     │
+  │                               │  Compare hashes ✓             │
+  │                               │                               │
+  │                               │  Generate access_token        │
+  │                               │  {user_id, email,             │
+  │                               │   type:"access", exp:15min}   │
+  │                               │                               │
+  │                               │  Generate refresh_token       │
+  │                               │  {user_id, jti:"uuid-123",    │
+  │                               │   type:"refresh", exp:7days}  │
+  │                               │                               │
+  │                               │  Hash refresh_token (SHA-256) │
+  │                               │                               │
+  │                               │  INSERT refresh_token         │
+  │                               │  (user_id, jti, hash, exp)    │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  stored                       │
+  │                               │                               │
+  │  200 OK                       │                               │
+  │  {access_token,               │                               │
+  │   refresh_token,              │                               │
+  │   user}                       │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+  │  Store tokens in localStorage │                               │
+  │                               │                               │
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+## **WORKFLOW 3: Accessing Protected Route**
+```
+Client                          Middleware                      Handler
+  │                               │                               │
+  │  GET /api/profile             │                               │
+  │  Authorization: Bearer token  │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  Extract token from header    │
+  │                               │  "Bearer eyJhbGc..."          │
+  │                               │                               │
+  │                               │  Verify signature ✓           │
+  │                               │  Check type === "access" ✓    │
+  │                               │  Check not expired ✓          │
+  │                               │  Extract user_id, email       │
+  │                               │                               │
+  │                               │  Add claims to context        │
+  │                               │                               │
+  │                               │  Pass request                 │
+  │                               ├──────────────────────────────>│
+  │                               │                               │
+  │                               │                          Process request
+  │                               │                          Get user data
+  │                               │                               │
+  │  200 OK                       │                               │
+  │  {user profile data}          │                               │
+  │<──────────────────────────────┴───────────────────────────────┤
+  │                               │                               │
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+## **WORKFLOW 4: Access Token Expired - Refresh**
+```
+Client                          Server                          Database
+  │                               │                               │
+  │  GET /api/profile             │                               │
+  │  Authorization: Bearer token  │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  Token expired! ✗             │
+  │                               │                               │
+  │  401 Unauthorized             │                               │
+  │  {"error": "token_expired"}   │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+  │                               │                               │
+  │  POST /api/refresh            │                               │
+  │  {"refresh_token": "eyJ..."}  │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  Verify signature ✓           │
+  │                               │  Check type === "refresh" ✓   │
+  │                               │  Check not expired ✓          │
+  │                               │  Extract jti, user_id         │
+  │                               │                               │
+  │                               │  SELECT * WHERE jti=?         │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  token data found ✓           │
+  │                               │                               │
+  │                               │  Hash incoming token          │
+  │                               │  Compare with stored hash ✓   │
+  │                               │                               │
+  │                               │  DELETE old token (ROTATION)  │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  deleted                      │
+  │                               │                               │
+  │                               │  Generate NEW access_token    │
+  │                               │  Generate NEW refresh_token   │
+  │                               │  (new jti)                    │
+  │                               │                               │
+  │                               │  Hash new refresh_token       │
+  │                               │                               │
+  │                               │  INSERT new refresh_token     │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  stored                       │
+  │                               │                               │
+  │  200 OK                       │                               │
+  │  {access_token,               │                               │
+  │   refresh_token}              │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+  │  Update tokens in localStorage│                               │
+  │                               │                               │
+  │  GET /api/profile (RETRY)     │                               │
+  │  Authorization: Bearer new    │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │  200 OK                       │                               │
+  │  {user profile data}          │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+## **WORKFLOW 5: Logout (Single Device)**
+```
+Client                          Server                          Database
+  │                               │                               │
+  │  POST /api/logout             │                               │
+  │  Authorization: Bearer token  │                               │
+  │  Body: {refresh_token}        │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  Verify access_token ✓        │
+  │                               │  (middleware)                 │
+  │                               │                               │
+  │                               │  Extract jti from             │
+  │                               │  refresh_token                │
+  │                               │                               │
+  │                               │  DELETE WHERE jti=?           │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  deleted                      │
+  │                               │                               │
+  │  200 OK                       │                               │
+  │  {"message": "Logged out"}    │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+  │  Clear tokens from localStorage│                              │
+  │                               │                               │
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+## **WORKFLOW 6: Logout All Devices**
+```
+Client                          Server                          Database
+  │                               │                               │
+  │  POST /api/logout-all         │                               │
+  │  Authorization: Bearer token  │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  Verify access_token ✓        │
+  │                               │  (middleware)                 │
+  │                               │                               │
+  │                               │  Extract user_id from token   │
+  │                               │                               │
+  │                               │  DELETE WHERE user_id=?       │
+  │                               │  (all user's tokens)          │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  all tokens deleted           │
+  │                               │                               │
+  │  200 OK                       │                               │
+  │  {"message": "Logged out      │                               │
+  │   from all devices"}          │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+  │  Clear tokens from localStorage│                              │
+  │                               │                               │
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+## **WORKFLOW 7: Token Reuse Detection (Security Breach)**
+```
+Attacker                        Server                          Database
+  │                               │                               │
+  │  Steals refresh_token_A       │                               │
+  │                               │                               │
+  │  POST /api/refresh            │                               │
+  │  {"refresh_token": "A"}       │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  SELECT WHERE jti=A           │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  Found ✓                      │
+  │                               │                               │
+  │                               │  DELETE token_A (rotation)    │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │                               │
+  │                               │  Generate token_B             │
+  │                               │  Store token_B                │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │                               │
+  │  200 OK                       │                               │
+  │  {"refresh_token": "B"}       │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+```
+```
+Real User                       Server                          Database
+  │                               │                               │
+  │  POST /api/refresh            │                               │
+  │  {"refresh_token": "A"}       │                               │
+  │  (tries to use old token)     │                               │
+  ├──────────────────────────────>│                               │
+  │                               │                               │
+  │                               │  SELECT WHERE jti=A           │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  NOT FOUND ✗                  │
+  │                               │                               │
+  │                               │  TOKEN REUSE DETECTED!     │
+  │                               │                               │
+  │                               │  DELETE ALL WHERE user_id=?   │
+  │                               ├──────────────────────────────>│
+  │                               │<──────────────────────────────┤
+  │                               │  all tokens deleted           │
+  │                               │  (including attacker's B)     │
+  │                               │                               │
+  │  401 Unauthorized             │                               │
+  │  {"error": "token_reuse"}     │                               │
+  │<──────────────────────────────┤                               │
+  │                               │                               │
+  │  Redirect to login            │                               │
+  │                               │                               │
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
 ## Understanding Password Hashing
 
 When building authentication systems, you'll hear "never store passwords in plain text" everywhere. But why? And what's the alternative? Let me break it down.
@@ -508,297 +804,3 @@ r.Group(func(r chi.Router) {
 })
 ```
 
-# FULL WORKFLOW
-## **WORKFLOW 1: Registration**
-```
-Client                          Server                          Database
-  │                               │                               │
-  │  POST /api/register           │                               │
-  │  {email, password}            │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  Hash password (bcrypt)       │
-  │                               │  "password123" → "$2a$10..."  │
-  │                               │                               │
-  │                               │  INSERT INTO users            │
-  │                               ├──────────────────────────────>│
-  │                               │                               │
-  │                               │<──────────────────────────────┤
-  │                               │  user created (id: 1)         │
-  │                               │                               │
-  │  201 Created                  │                               │
-  │  {id: 1, email, created_at}   │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-## **WORKFLOW 2: Login**
-```
-Client                          Server                          Database
-  │                               │                               │
-  │  POST /api/login              │                               │
-  │  {email, password}            │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  SELECT user WHERE email=?    │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  user data                    │
-  │                               │                               │
-  │                               │  Verify password (bcrypt)     │
-  │                               │  Compare hashes ✓             │
-  │                               │                               │
-  │                               │  Generate access_token        │
-  │                               │  {user_id, email,             │
-  │                               │   type:"access", exp:15min}   │
-  │                               │                               │
-  │                               │  Generate refresh_token       │
-  │                               │  {user_id, jti:"uuid-123",    │
-  │                               │   type:"refresh", exp:7days}  │
-  │                               │                               │
-  │                               │  Hash refresh_token (SHA-256) │
-  │                               │                               │
-  │                               │  INSERT refresh_token         │
-  │                               │  (user_id, jti, hash, exp)    │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  stored                       │
-  │                               │                               │
-  │  200 OK                       │                               │
-  │  {access_token,               │                               │
-  │   refresh_token,              │                               │
-  │   user}                       │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-  │  Store tokens in localStorage │                               │
-  │                               │                               │
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-## **WORKFLOW 3: Accessing Protected Route**
-```
-Client                          Middleware                      Handler
-  │                               │                               │
-  │  GET /api/profile             │                               │
-  │  Authorization: Bearer token  │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  Extract token from header    │
-  │                               │  "Bearer eyJhbGc..."          │
-  │                               │                               │
-  │                               │  Verify signature ✓           │
-  │                               │  Check type === "access" ✓    │
-  │                               │  Check not expired ✓          │
-  │                               │  Extract user_id, email       │
-  │                               │                               │
-  │                               │  Add claims to context        │
-  │                               │                               │
-  │                               │  Pass request                 │
-  │                               ├──────────────────────────────>│
-  │                               │                               │
-  │                               │                          Process request
-  │                               │                          Get user data
-  │                               │                               │
-  │  200 OK                       │                               │
-  │  {user profile data}          │                               │
-  │<──────────────────────────────┴───────────────────────────────┤
-  │                               │                               │
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-## **WORKFLOW 4: Access Token Expired - Refresh**
-```
-Client                          Server                          Database
-  │                               │                               │
-  │  GET /api/profile             │                               │
-  │  Authorization: Bearer token  │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  Token expired! ✗             │
-  │                               │                               │
-  │  401 Unauthorized             │                               │
-  │  {"error": "token_expired"}   │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-  │                               │                               │
-  │  POST /api/refresh            │                               │
-  │  {"refresh_token": "eyJ..."}  │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  Verify signature ✓           │
-  │                               │  Check type === "refresh" ✓   │
-  │                               │  Check not expired ✓          │
-  │                               │  Extract jti, user_id         │
-  │                               │                               │
-  │                               │  SELECT * WHERE jti=?         │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  token data found ✓           │
-  │                               │                               │
-  │                               │  Hash incoming token          │
-  │                               │  Compare with stored hash ✓   │
-  │                               │                               │
-  │                               │  DELETE old token (ROTATION)  │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  deleted                      │
-  │                               │                               │
-  │                               │  Generate NEW access_token    │
-  │                               │  Generate NEW refresh_token   │
-  │                               │  (new jti)                    │
-  │                               │                               │
-  │                               │  Hash new refresh_token       │
-  │                               │                               │
-  │                               │  INSERT new refresh_token     │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  stored                       │
-  │                               │                               │
-  │  200 OK                       │                               │
-  │  {access_token,               │                               │
-  │   refresh_token}              │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-  │  Update tokens in localStorage│                               │
-  │                               │                               │
-  │  GET /api/profile (RETRY)     │                               │
-  │  Authorization: Bearer new    │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │  200 OK                       │                               │
-  │  {user profile data}          │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-## **WORKFLOW 5: Logout (Single Device)**
-```
-Client                          Server                          Database
-  │                               │                               │
-  │  POST /api/logout             │                               │
-  │  Authorization: Bearer token  │                               │
-  │  Body: {refresh_token}        │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  Verify access_token ✓        │
-  │                               │  (middleware)                 │
-  │                               │                               │
-  │                               │  Extract jti from             │
-  │                               │  refresh_token                │
-  │                               │                               │
-  │                               │  DELETE WHERE jti=?           │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  deleted                      │
-  │                               │                               │
-  │  200 OK                       │                               │
-  │  {"message": "Logged out"}    │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-  │  Clear tokens from localStorage│                              │
-  │                               │                               │
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-## **WORKFLOW 6: Logout All Devices**
-```
-Client                          Server                          Database
-  │                               │                               │
-  │  POST /api/logout-all         │                               │
-  │  Authorization: Bearer token  │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  Verify access_token ✓        │
-  │                               │  (middleware)                 │
-  │                               │                               │
-  │                               │  Extract user_id from token   │
-  │                               │                               │
-  │                               │  DELETE WHERE user_id=?       │
-  │                               │  (all user's tokens)          │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  all tokens deleted           │
-  │                               │                               │
-  │  200 OK                       │                               │
-  │  {"message": "Logged out      │                               │
-  │   from all devices"}          │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-  │  Clear tokens from localStorage│                              │
-  │                               │                               │
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-## **WORKFLOW 7: Token Reuse Detection (Security Breach)**
-```
-Attacker                        Server                          Database
-  │                               │                               │
-  │  Steals refresh_token_A       │                               │
-  │                               │                               │
-  │  POST /api/refresh            │                               │
-  │  {"refresh_token": "A"}       │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  SELECT WHERE jti=A           │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  Found ✓                      │
-  │                               │                               │
-  │                               │  DELETE token_A (rotation)    │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │                               │
-  │                               │  Generate token_B             │
-  │                               │  Store token_B                │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │                               │
-  │  200 OK                       │                               │
-  │  {"refresh_token": "B"}       │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-```
-```
-Real User                       Server                          Database
-  │                               │                               │
-  │  POST /api/refresh            │                               │
-  │  {"refresh_token": "A"}       │                               │
-  │  (tries to use old token)     │                               │
-  ├──────────────────────────────>│                               │
-  │                               │                               │
-  │                               │  SELECT WHERE jti=A           │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  NOT FOUND ✗                  │
-  │                               │                               │
-  │                               │  TOKEN REUSE DETECTED!     │
-  │                               │                               │
-  │                               │  DELETE ALL WHERE user_id=?   │
-  │                               ├──────────────────────────────>│
-  │                               │<──────────────────────────────┤
-  │                               │  all tokens deleted           │
-  │                               │  (including attacker's B)     │
-  │                               │                               │
-  │  401 Unauthorized             │                               │
-  │  {"error": "token_reuse"}     │                               │
-  │<──────────────────────────────┤                               │
-  │                               │                               │
-  │  Redirect to login            │                               │
-  │                               │                               │
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
